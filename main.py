@@ -119,9 +119,122 @@ st.info("**이 그래프로 알 수 있는 것:** (여기에 한 문장으로 �
 st.divider()
 
 # ------------------------------------------------------------
-# 3구역. (다음 그래프를 추가할 자리)
+# 3구역. 날짜별 전체(10위권) 일관객 합계 추이
 # ------------------------------------------------------------
-st.header("3. (다음 그래프 추가 예정)")
-st.write("여기에 다음 그래프를 이어서 추가하세요.")
+st.header("3. 날짜별 전체(10위권) 일관객 합계 추이")
 
-# st.info("**이 그래프로 알 수 있는 것:** ")
+daily_total = (
+    df.groupby("날짜")["일관객"]
+    .sum()
+    .reset_index()
+    .sort_values("날짜")
+)
+
+fig3 = px.area(
+    daily_total,
+    x="날짜",
+    y="일관객",
+    title="날짜별 박스오피스 10위권 일관객 합계",
+    labels={"날짜": "날짜", "일관객": "일일 관객수 합계"},
+)
+fig3.update_traces(
+    hovertemplate="날짜: %{x|%Y-%m-%d}<br>일일 관객수 합계: %{y:,}명<extra></extra>"
+)
+fig3.update_layout(hovermode="x unified")
+
+# 합계가 가장 컸던 상위 3일 찾기
+top3_days = daily_total.sort_values("일관객", ascending=False).head(3)
+
+# 상위 3일을 그래프 위에 점 + 날짜 라벨로 표시
+fig3.add_scatter(
+    x=top3_days["날짜"],
+    y=top3_days["일관객"],
+    mode="markers+text",
+    text=top3_days["날짜"].dt.strftime("%Y-%m-%d"),
+    textposition="top center",
+    marker=dict(color="red", size=10, symbol="star"),
+    name="합계 상위 3일",
+    hovertemplate="날짜: %{x|%Y-%m-%d}<br>일일 관객수 합계: %{y:,}명<extra></extra>",
+)
+
+st.plotly_chart(fig3, use_container_width=True)
+
+st.info("**이 그래프로 알 수 있는 것:** (여기에 한 문장으로 해석을 적어보세요.)")
+
+st.divider()
+
+# ------------------------------------------------------------
+# 4구역. 일관객 합계 TOP 10 영화
+# ------------------------------------------------------------
+st.header("4. 일관객 합계 TOP 10 영화")
+
+movie_summary = (
+    df.groupby("영화명")
+    .agg(일관객합계=("일관객", "sum"), 상영일수=("날짜", "count"))
+    .reset_index()
+)
+
+top10_summary = movie_summary.sort_values("일관객합계", ascending=False).head(10)
+
+fig4 = px.bar(
+    top10_summary,
+    x="일관객합계",
+    y="영화명",
+    orientation="h",
+    title="일관객 합계 TOP 10 영화",
+    labels={"일관객합계": "일관객 합계", "영화명": "영화명"},
+    custom_data=["상영일수"],
+)
+fig4.update_traces(
+    hovertemplate=(
+        "영화명: %{y}<br>"
+        "일관객 합계: %{x:,}명<br>"
+        "10위권 진입 날수: %{customdata[0]}일"
+        "<extra></extra>"
+    )
+)
+# 관객이 많은 영화가 위쪽에 오도록 정렬
+fig4.update_layout(yaxis=dict(categoryorder="total ascending"))
+
+st.plotly_chart(fig4, use_container_width=True)
+
+st.info("**이 그래프로 알 수 있는 것:** (여기에 한 문장으로 해석을 적어보세요.)")
+
+st.divider()
+
+# ------------------------------------------------------------
+# 5구역. 월 x 요일별 일관객 합계 히트맵
+# ------------------------------------------------------------
+st.header("5. 월 x 요일별 일관객 합계 히트맵")
+
+heatmap_df = df.copy()
+heatmap_df["월"] = heatmap_df["날짜"].dt.month
+heatmap_df["요일"] = heatmap_df["날짜"].dt.dayofweek  # 0=월요일 ... 6=일요일
+
+weekday_labels = ["월", "화", "수", "목", "금", "토", "일"]
+
+heatmap_pivot = (
+    heatmap_df.groupby(["월", "요일"])["일관객"]
+    .sum()
+    .reset_index()
+    .pivot(index="요일", columns="월", values="일관객")
+    .reindex(index=range(7))  # 월요일(0)부터 일요일(6) 순서 고정
+    .fillna(0)
+)
+heatmap_pivot.index = weekday_labels
+heatmap_pivot.columns = [f"{m}월" for m in heatmap_pivot.columns]
+
+fig5 = px.imshow(
+    heatmap_pivot,
+    color_continuous_scale="Reds",
+    aspect="auto",
+    labels=dict(x="월", y="요일", color="일관객 합계"),
+    title="월 x 요일별 일관객 합계 히트맵 (색이 진할수록 관객 많음)",
+)
+fig5.update_traces(
+    hovertemplate="%{x} %{y}요일<br>일관객 합계: %{z:,.0f}명<extra></extra>"
+)
+
+st.plotly_chart(fig5, use_container_width=True)
+
+st.info("**이 그래프로 알 수 있는 것:** (여기에 한 문장으로 해석을 적어보세요.)")
