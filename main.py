@@ -68,6 +68,7 @@ st.sidebar.markdown(
 - [3. 날짜별 전체(10위권) 일관객 합계 추이](#section-3)
 - [4. 일관객 합계 TOP 10 영화](#section-4)
 - [5. 월 x 요일별 일관객 합계 히트맵](#section-5)
+- [6. 선택 영화의 누적관객 변화](#section-6)
 """
 )
 
@@ -309,4 +310,43 @@ max_val = heatmap_pivot.stack().max()
 st.info(
     f"**이 그래프로 알 수 있는 것:** {max_idx[1]} {max_idx[0]}요일의 일관객 합계가 "
     f"{int(max_val):,}명으로 가장 높았습니다."
+)
+
+st.divider()
+
+# ------------------------------------------------------------
+# 6구역. 선택 영화의 누적관객 변화
+# ------------------------------------------------------------
+st.markdown('<div id="section-6"></div>', unsafe_allow_html=True)
+st.header("6. 선택 영화의 누적관객 변화")
+
+selected_movie_6 = st.selectbox("영화를 선택하세요", movie_list, key="movie_select_6")
+
+movie_df_6 = (
+    df[df["영화명"] == selected_movie_6]
+    .sort_values("날짜")
+    .loc[:, ["날짜", "누적관객"]]
+)
+
+fig6 = px.line(
+    movie_df_6,
+    x="날짜",
+    y="누적관객",
+    markers=True,
+    title=f"'{selected_movie_6}' 누적관객 변화",
+    labels={"날짜": "날짜", "누적관객": "누적 관객수"},
+)
+fig6.update_traces(
+    hovertemplate="날짜: %{x|%Y-%m-%d}<br>누적 관객수: %{y:,}명<extra></extra>"
+)
+fig6.update_layout(hovermode="x unified")
+
+st.plotly_chart(fig6, use_container_width=True)
+
+first_row_6 = movie_df_6.iloc[0]
+last_row_6 = movie_df_6.iloc[-1]
+st.info(
+    f"**이 그래프로 알 수 있는 것:** '{selected_movie_6}'는 "
+    f"{first_row_6['날짜'].strftime('%Y-%m-%d')} 기준 누적관객 {int(first_row_6['누적관객']):,}명에서 "
+    f"{last_row_6['날짜'].strftime('%Y-%m-%d')} 기준 {int(last_row_6['누적관객']):,}명까지 늘었습니다."
 )
