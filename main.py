@@ -20,7 +20,16 @@ DATA_URL = "https://raw.githubusercontent.com/greatsong/modudata/main/data/kobis
 # ------------------------------------------------------------
 @st.cache_data
 def load_data(url: str) -> pd.DataFrame:
-    df = pd.read_csv(url)
+    # 인코딩이 다를 수 있으니 UTF-8을 먼저 시도하고, 실패하면 CP949(EUC-KR)로 재시도
+    try:
+        df = pd.read_csv(url, encoding="utf-8")
+    except UnicodeDecodeError:
+        df = pd.read_csv(url, encoding="cp949")
+
+    required_cols = ["날짜", "순위", "영화코드", "영화명", "일관객", "누적관객", "스크린수", "상영횟수"]
+    missing = [c for c in required_cols if c not in df.columns]
+    if missing:
+        raise ValueError(f"필요한 열이 없습니다: {missing} (원본 열: {list(df.columns)})")
 
     # 날짜 열: 하이픈 없는 여덟 자리 숫자(예: 20230101) -> datetime으로 변환
     df["날짜"] = pd.to_datetime(df["날짜"].astype(str), format="%Y%m%d")
@@ -28,27 +37,61 @@ def load_data(url: str) -> pd.DataFrame:
     # 숫자 열들이 문자열(쉼표 포함 등)로 들어올 수 있으니 안전하게 숫자형으로 변환
     numeric_cols = ["순위", "일관객", "누적관객", "스크린수", "상영횟수"]
     for col in numeric_cols:
-        if col in df.columns:
-            df[col] = (
-                df[col]
-                .astype(str)
-                .str.replace(",", "", regex=False)
-                .pipe(pd.to_numeric, errors="coerce")
-            )
+        df[col] = (
+            df[col]
+            .astype(str)
+            .str.replace(",", "", regex=False)
+            .pipe(pd.to_numeric, errors="coerce")
+        )
 
     return df
 
 
-with st.spinner("데이터를 불러오는 중입니다..."):
-    df = load_data(DATA_URL)
+try:
+    with st.spinner("데이터를 불러오는 중입니다..."):
+        df = load_data(DATA_URL)
+except Exception as e:
+    st.error(
+        "데이터를 불러오는 중 문제가 발생했습니다. 잠시 후 다시 시도해 주세요.\n\n"
+        f"오류 내용: {e}"
+    )
+    st.stop()
 
-st.caption(f"데이터 기간: {df['날짜'].min().date()} ~ {df['날짜'].max().date()} · 총 {len(df):,}행")
+# ------------------------------------------------------------
+# 사이드바 목차
+# ------------------------------------------------------------
+st.sidebar.title("📖 목차")
+st.sidebar.markdown(
+    """
+- [1. 영화별 일별 관객수 변화](#section-1)
+- [2. 일관객 합계 상위 5편 비교](#section-2)
+- [3. 날짜별 전체(10위권) 일관객 합계 추이](#section-3)
+- [4. 일관객 합계 TOP 10 영화](#section-4)
+- [5. 월 x 요일별 일관객 합계 히트맵](#section-5)
+"""
+)
+
+# ------------------------------------------------------------
+# 전체 데이터 요약
+# ------------------------------------------------------------
+n_days = df["날짜"].nunique()
+n_movies = df["영화명"].nunique()
+top_movie_row = (
+    df.groupby("영화명")["일관객"].sum().sort_values(ascending=False).index[0]
+)
+
+col_a, col_b, col_c, col_d = st.columns(4)
+col_a.metric("수집 기간", f"{df['날짜'].min().date()} ~ {df['날짜'].max().date()}")
+col_b.metric("총 일수", f"{n_days:,}일")
+col_c.metric("등장 영화 수", f"{n_movies:,}편")
+col_d.metric("전체 1위 (합계 기준)", top_movie_row)
 
 st.divider()
 
 # ------------------------------------------------------------
 # 1구역. 영화별 일별 관객수 변화
 # ------------------------------------------------------------
+st.markdown('<div id="section-1"></div>', unsafe_allow_html=True)
 st.header("1. 영화별 일별 관객수 변화")
 
 movie_list = sorted(df["영화명"].dropna().unique())
@@ -75,13 +118,19 @@ fig1.update_layout(hovermode="x unified")
 
 st.plotly_chart(fig1, use_container_width=True)
 
-st.info("**이 그래프로 알 수 있는 것:** (여기에 한 문장으로 해석을 적어보세요.)")
+peak_row = movie_df.loc[movie_df["일관객"].idxmax()]
+st.info(
+    f"**이 그래프로 알 수 있는 것:** '{selected_movie}'는 "
+    f"{peak_row['날짜'].strftime('%Y-%m-%d')}에 일일 관객 수가 "
+    f"{int(peak_row['일관객']):,}명으로 가장 많았습니다."
+)
 
 st.divider()
 
 # ------------------------------------------------------------
 # 2구역. 일관객 합계 상위 5편 비교
 # ------------------------------------------------------------
+st.markdown('<div id="section-2"></div>', unsafe_allow_html=True)
 st.header("2. 일관객 합계 상위 5편 비교")
 
 top5_movies = (
@@ -114,13 +163,19 @@ fig2.update_layout(hovermode="x unified", legend_title_text="영화명 (클릭�
 
 st.plotly_chart(fig2, use_container_width=True)
 
-st.info("**이 그래프로 알 수 있는 것:** (여기에 한 문장으로 해석을 적어보세요.)")
+top1_movie = top5_movies[0]
+top1_sum = int(df.loc[df["영화명"] == top1_movie, "일관객"].sum())
+st.info(
+    f"**이 그래프로 알 수 있는 것:** 상위 5편 중 '{top1_movie}'가 "
+    f"기간 합계 {top1_sum:,}명으로 가장 많은 관객을 모았습니다."
+)
 
 st.divider()
 
 # ------------------------------------------------------------
 # 3구역. 날짜별 전체(10위권) 일관객 합계 추이
 # ------------------------------------------------------------
+st.markdown('<div id="section-3"></div>', unsafe_allow_html=True)
 st.header("3. 날짜별 전체(10위권) 일관객 합계 추이")
 
 daily_total = (
@@ -159,13 +214,19 @@ fig3.add_scatter(
 
 st.plotly_chart(fig3, use_container_width=True)
 
-st.info("**이 그래프로 알 수 있는 것:** (여기에 한 문장으로 해석을 적어보세요.)")
+best_day = top3_days.iloc[0]
+st.info(
+    f"**이 그래프로 알 수 있는 것:** 10위권 전체 일일 관객 합계는 "
+    f"{best_day['날짜'].strftime('%Y-%m-%d')}에 {int(best_day['일관객']):,}명으로 "
+    f"1년 중 가장 많았습니다."
+)
 
 st.divider()
 
 # ------------------------------------------------------------
 # 4구역. 일관객 합계 TOP 10 영화
 # ------------------------------------------------------------
+st.markdown('<div id="section-4"></div>', unsafe_allow_html=True)
 st.header("4. 일관객 합계 TOP 10 영화")
 
 movie_summary = (
@@ -198,13 +259,19 @@ fig4.update_layout(yaxis=dict(categoryorder="total ascending"))
 
 st.plotly_chart(fig4, use_container_width=True)
 
-st.info("**이 그래프로 알 수 있는 것:** (여기에 한 문장으로 해석을 적어보세요.)")
+top1_row = top10_summary.iloc[0]
+st.info(
+    f"**이 그래프로 알 수 있는 것:** '{top1_row['영화명']}'가 합계 "
+    f"{int(top1_row['일관객합계']):,}명으로 1위이며, "
+    f"{int(top1_row['상영일수'])}일간 10위권에 머물렀습니다."
+)
 
 st.divider()
 
 # ------------------------------------------------------------
 # 5구역. 월 x 요일별 일관객 합계 히트맵
 # ------------------------------------------------------------
+st.markdown('<div id="section-5"></div>', unsafe_allow_html=True)
 st.header("5. 월 x 요일별 일관객 합계 히트맵")
 
 heatmap_df = df.copy()
@@ -237,4 +304,9 @@ fig5.update_traces(
 
 st.plotly_chart(fig5, use_container_width=True)
 
-st.info("**이 그래프로 알 수 있는 것:** (여기에 한 문장으로 해석을 적어보세요.)")
+max_idx = heatmap_pivot.stack().idxmax()
+max_val = heatmap_pivot.stack().max()
+st.info(
+    f"**이 그래프로 알 수 있는 것:** {max_idx[1]} {max_idx[0]}요일의 일관객 합계가 "
+    f"{int(max_val):,}명으로 가장 높았습니다."
+)
